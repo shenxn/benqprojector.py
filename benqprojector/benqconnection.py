@@ -109,9 +109,10 @@ class BenQConnection(ABC):
             return b""
 
         try:
-            return await asyncio.wait_for(
-                self._reader.readline(), timeout=self._read_timeout
+            content = await asyncio.wait_for(
+                self._reader.read(10), timeout=self._read_timeout
             )
+            return content.replace(b'\r', b'').replace(b'\n', b'')
         except ConnectionError as ex:
             await self.close()
             raise BenQConnectionError(ex.strerror) from ex

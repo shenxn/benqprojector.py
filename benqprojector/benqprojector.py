@@ -32,6 +32,7 @@ BAUD_RATES = [2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200]
 
 RESPONSE_RE_STRICT = r"^\*([^=]*)=([^#]*)#$"
 RESPONSE_RE_LOSE = r"^\*?([^=]*)=([^#]*)#?$"
+RESPONSE_RE_MODEL = re.compile(r"^\*?([^#]*)#?$")
 
 WHITESPACE = string.whitespace + "\x00"
 END_OF_RESPONSE = b"#\n\r\x00"
@@ -579,6 +580,7 @@ class BenQProjector(ABC):
 
         try:
             _command = f"*{command}={action}#"
+            logging.error(_command)
             await self._send_raw_command(_command)
 
             empty_line_count = 0
@@ -641,6 +643,7 @@ class BenQProjector(ABC):
                     logger.warning("No command echo received")
                     self._expect_command_echo = False
 
+                logging.error(response)
                 return self._parse_response(command, action, _command, response)
         except BenQProjectorError as ex:
             ex.command = command
@@ -735,7 +738,7 @@ class BenQProjector(ABC):
             await self._wait_for_prompt()
 
         logger.debug("command %s", command)
-        await self.connection.write(f"{command}\r".encode("ascii"))
+        await self.connection.write(f"\r{command}\r".encode("ascii"))
 
     def _parse_response(self, command, action, _command, response):
         # Lowercase the response
@@ -758,9 +761,14 @@ class BenQProjector(ABC):
 
         matches = self._response_re.match(response)
         if not matches:
-            logger.error("Unexpected response format, response: %s", response)
-            raise InvallidResponseError(command, action, response)
-        response: str = matches.group(2)
+            # model response can be in another format
+            if command == "modelname" and (model_matches := RESPONSE_RE_MODEL.match(response)):
+                response: str = model_matches.group(1)
+            else:
+                logger.error("Unexpected response format, response: %s", response)
+                raise InvallidResponseError(command, action, response)
+        else:
+            response: str = matches.group(2)
 
         # Strip any spaces from the response
         response = response.strip(WHITESPACE)
@@ -939,7 +947,7 @@ class BenQProjector(ABC):
                 await asyncio.sleep(0.2)
 
         # Revert mode back to current mode
-        self.send_command(command, current_mode)
+        await self.send_command(command, current_mode)
 
         if self._interactive:
             print()
